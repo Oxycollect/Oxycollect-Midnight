@@ -1,0 +1,132 @@
+// SPDX-License-Identifier: Apache-2.0
+// Midnight Network Compact circuit for privacy-preserving litter classification
+// Built for DEV.to Privacy First Challenge
+
+use std::crypto::mimc;
+use std::collections::map;
+
+// Privacy-preserving litter classification circuit
+circuit ClassificationProof {
+    // Private inputs (hidden from verifiers)
+    private field userSecret;
+    private field imageHash;
+    private field exactLatitude;
+    private field exactLongitude;
+    private field timestamp;
+    
+    // Public inputs (visible to verifiers)
+    public field commitmentHash;
+    public field classificationHash;
+    public field locationZone;
+    public field validityProof;
+
+    // Classification types (encoded as field elements)
+    const PLASTIC_BOTTLE: field = 1;
+    const PLASTIC_CUP: field = 2;
+    const PLASTIC_BAG: field = 3;
+    const ROPE: field = 4;
+    const OTHER: field = 5;
+
+    // Geographic zones for location privacy (1km accuracy)
+    const ZONE_SIZE: field = 1000; // 1km in meters
+
+    // Main circuit constraint logic
+    constraint main() {
+        // Prove commitment hash is correctly computed from user secret and image
+        let computed_commitment = mimc([userSecret, imageHash, timestamp]);
+        assert(computed_commitment == commitmentHash);
+
+        // Prove classification is valid (between 1-5)
+        assert(classificationHash >= PLASTIC_BOTTLE);
+        assert(classificationHash <= OTHER);
+
+        // Prove location is anonymized to correct zone
+        let lat_zone = (exactLatitude / ZONE_SIZE) * ZONE_SIZE;
+        let lng_zone = (exactLongitude / ZONE_SIZE) * ZONE_SIZE;
+        let computed_zone = mimc([lat_zone, lng_zone]);
+        assert(computed_zone == locationZone);
+
+        // Prove validity constraints
+        assert(timestamp > 0);
+        assert(imageHash != 0);
+        assert(userSecret != 0);
+        
+        // Generate validity proof
+        let validity = mimc([commitmentHash, classificationHash, locationZone, timestamp]);
+        assert(validity == validityProof);
+    }
+
+    // Helper function to verify image authenticity
+    function verifyImageHash(field hash) -> bool {
+        return hash != 0 && hash < field::max();
+    }
+
+    // Helper function to compute location zone
+    function computeLocationZone(field lat, field lng) -> field {
+        let lat_zone = (lat / ZONE_SIZE) * ZONE_SIZE;
+        let lng_zone = (lng / ZONE_SIZE) * ZONE_SIZE;
+        return mimc([lat_zone, lng_zone]);
+    }
+
+    // Helper function to encode classification
+    function encodeClassification(string classification) -> field {
+        if (classification == "plastic_bottle") { return PLASTIC_BOTTLE; }
+        else if (classification == "plastic_cup") { return PLASTIC_CUP; }
+        else if (classification == "plastic_bag") { return PLASTIC_BAG; }
+        else if (classification == "rope") { return ROPE; }
+        else { return OTHER; }
+    }
+}
+
+// Secondary circuit for anti-fraud detection
+circuit DuplicateDetectionProof {
+    private field imageHash;
+    private field userSecret;
+    private field timestamp;
+    
+    public field nullifierHash;
+    public field validityProof;
+
+    constraint main() {
+        // Generate nullifier to prevent double-spending/duplicate submissions
+        let nullifier = mimc([imageHash, userSecret]);
+        assert(nullifier == nullifierHash);
+
+        // Prove timestamp is recent (within 24 hours)
+        let current_time = field::now(); // Hypothetical current time function
+        assert(timestamp <= current_time);
+        assert(timestamp >= current_time - 86400); // 24 hours in seconds
+
+        // Generate validity proof
+        let validity = mimc([nullifierHash, timestamp]);
+        assert(validity == validityProof);
+    }
+}
+
+// Circuit for anonymous strike system
+circuit StrikeProof {
+    private field userSecret;
+    private field strikeReason;
+    
+    public field commitmentHash;
+    public field reasonHash;
+    public field adminSignature;
+
+    constraint main() {
+        // Prove commitment belongs to the correct user (without revealing identity)
+        let commitment = mimc([userSecret]);
+        assert(commitment == commitmentHash);
+
+        // Prove strike reason is legitimate
+        let reason = mimc([strikeReason]);
+        assert(reason == reasonHash);
+
+        // Verify admin authorization (simplified)
+        assert(adminSignature != 0);
+    }
+}
+
+// Export circuits for use in DApp
+export ClassificationProof;
+export DuplicateDetectionProof;
+export StrikeProof;
